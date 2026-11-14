@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PDF Kütüphanem</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #292b32; font-family: Arial, sans-serif; }
+    header { min-height: 72px; padding: 0 6%; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #eee; }
+    .brand { color: #282a31; font-size: 25px; font-weight: 800; text-decoration: none; }
+    .brand span { color: #e53945; }
+    nav { display: flex; gap: 26px; }
+    nav a { color: #4a4b50; font-size: 14px; font-weight: 700; text-decoration: none; }
+    nav a:hover { color: #df3340; }
+    main { width: min(760px, 92%); margin: 70px auto; text-align: center; }
+    h1 { margin: 0 0 16px; font-size: clamp(30px, 5vw, 42px); }
+    .intro { margin: 0 auto 34px; max-width: 620px; color: #64666e; font-size: 18px; line-height: 1.6; }
+    .drop-area { padding: 46px 20px; border: 2px dashed #e3a0a4; border-radius: 16px; background: #fffafa; }
+    .choose-button, .convert-button { display: inline-block; border: 0; border-radius: 10px; padding: 16px 26px; color: white; background: #e53945; font-size: 16px; font-weight: 700; cursor: pointer; }
+    .choose-button:hover, .convert-button:hover { background: #c92e39; }
+    .hint { margin: 17px 0 0; color: #777982; font-size: 14px; }
+    #fileInput { display: none; }
+    #fileList { margin: 16px auto 0; max-width: 500px; color: #555; text-align: left; line-height: 1.8; }
+    .convert-button { margin-top: 20px; }
+    .office-box { margin-top: 64px; padding: 28px; border: 1px solid #eee; border-radius: 14px; text-align: left; }
+    .office-box h2 { margin-top: 0; }
+    .office-box input { display: block; margin: 18px 0; }
+    footer { padding: 24px; color: #777982; text-align: center; font-size: 13px; }
+    @media (max-width: 650px) {
+      header { padding: 18px 5%; align-items: flex-start; }
+      nav { gap: 12px; flex-direction: column; }
+      main { margin-top: 46px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/"><span>PDF</span> Kütüphanem</a>
+    <nav>
+      <a href="#jpg">JPG → PDF</a>
+      <a href="#office">Office → PDF</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="jpg">
+      <h1>JPG PDF Çevirme</h1>
+      <p class="intro">JPG veya PNG görüntülerini PDF dosyasına dönüştür. Birden fazla görsel seçebilir veya dosyaları buraya bırakabilirsin.</p>
+
+      <form action="/convert-jpg" method="post" enctype="multipart/form-data">
+        <div class="drop-area" id="dropArea">
+          <label class="choose-button" for="fileInput">JPG görüntülerini seç</label>
+          <input id="fileInput" type="file" name="images" accept=".jpg,.jpeg,.png,image/jpeg,image/png" multiple required>
+          <p class="hint">veya JPG/PNG resimlerini buraya bırak</p>
+          <div id="fileList"></div>
+        </div>
+        <button class="convert-button" type="submit">PDF'ye çevir</button>
+      </form>
+    </section>
+
+    <section class="office-box" id="office">
+      <h2>Word, Excel veya PowerPoint dosyasını PDF'ye çevir</h2>
+      <form action="/convert" method="post" enctype="multipart/form-data">
+        <input type="file" name="wordfile" accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx" required>
+        <button class="convert-button" type="submit">Dosyayı PDF'ye çevir</button>
+      </form>
+    </section>
+  </main>
+
+  <footer>PDF Kütüphanem · Dosyalarını PDF'ye dönüştür</footer>
+
+  <script>
+    const input = document.getElementById("fileInput");
+    const area = document.getElementById("dropArea");
+    const list = document.getElementById("fileList");
+
+    function showFiles(files) {
+      list.replaceChildren();
+      Array.from(files).forEach(file => {
+        const item = document.createElement("div");
+        item.textContent = "📄 " + file.name;
+        list.appendChild(item);
+      });
+    }
+
+    input.addEventListener("change", () => showFiles(input.files));
+    area.addEventListener("dragover", event => {
+      event.preventDefault();
+      area.style.background = "#fff1f2";
+    });
+    area.addEventListener("dragleave", () => {
+      area.style.background = "#fffafa";
+    });
+    area.addEventListener("drop", event => {
+      event.preventDefault();
+      area.style.background = "#fffafa";
+      input.files = event.dataTransfer.files;
+      showFiles(input.files);
+    });
+  </script>
+</body>
+</html>
