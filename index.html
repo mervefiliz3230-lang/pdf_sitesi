@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PDF Kütüphanem</title>
+  <title>Ücretsiz PDF Oluşturucu | PDF Kütüphanem</title>
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; color: #292b32; font-family: Arial, sans-serif; }
     header { min-height: 72px; padding: 0 6%; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #eee; }
     .brand { color: #282a31; font-size: 25px; font-weight: 800; text-decoration: none; }
     .brand span { color: #e53945; }
-    nav { display: flex; gap: 26px; }
+    nav { display: flex; gap: 20px; flex-wrap: wrap; }
     nav a { color: #4a4b50; font-size: 14px; font-weight: 700; text-decoration: none; }
     nav a:hover { color: #df3340; }
     main { width: min(760px, 92%); margin: 70px auto; text-align: center; }
@@ -26,10 +26,13 @@
     .office-box { margin-top: 64px; padding: 28px; border: 1px solid #eee; border-radius: 14px; text-align: left; }
     .office-box h2 { margin-top: 0; }
     .office-box input { display: block; margin: 18px 0; }
+    .text-box { margin-top: 24px; padding: 28px; border: 1px solid #eee; border-radius: 14px; text-align: left; }
+    .text-box textarea { width: 100%; min-height: 120px; padding: 12px; font: inherit; border: 1px solid #ccc; border-radius: 8px; }
+    .note { color: #777982; font-size: 14px; line-height: 1.5; }
     footer { padding: 24px; color: #777982; text-align: center; font-size: 13px; }
     @media (max-width: 650px) {
-      header { padding: 18px 5%; align-items: flex-start; }
-      nav { gap: 12px; flex-direction: column; }
+      header { padding: 18px 5%; align-items: flex-start; gap: 16px; flex-direction: column; }
+      nav { gap: 12px; }
       main { margin-top: 46px; }
     }
   </style>
@@ -39,14 +42,24 @@
     <a class="brand" href="/"><span>PDF</span> Kütüphanem</a>
     <nav>
       <a href="#jpg">JPG → PDF</a>
-      <a href="#office">Office → PDF</a>
+      <a href="#word">Word → PDF</a>
+      <a href="#powerpoint">PowerPoint → PDF</a>
+      <a href="#excel">Excel → PDF</a>
+      <a href="#metin">Metin → PDF</a>
     </nav>
   </header>
 
   <main>
+    <h1>Ücretsiz PDF Oluşturucu</h1>
+    <p class="intro">
+      JPG, Word, PowerPoint ve Excel dosyalarını çevrimiçi olarak PDF'ye dönüştür.
+    </p>
+
     <section id="jpg">
-      <h1>JPG PDF Çevirme</h1>
-      <p class="intro">JPG veya PNG görüntülerini PDF dosyasına dönüştür. Birden fazla görsel seçebilir veya dosyaları buraya bırakabilirsin.</p>
+      <h2>JPG'yi PDF'ye Çevir</h2>
+      <p class="intro">
+        JPG veya PNG görüntülerini PDF dosyasına dönüştür. Birden fazla görsel seçebilir veya dosyaları buraya bırakabilirsin.
+      </p>
 
       <form action="/convert-jpg" method="post" enctype="multipart/form-data">
         <div class="drop-area" id="dropArea">
@@ -59,16 +72,26 @@
       </form>
     </section>
 
-    <section class="office-box" id="office">
-      <h2>Word, Excel veya PowerPoint dosyasını PDF'ye çevir</h2>
+    <section class="office-box" id="word">
+      <h2>Word'ü PDF'ye Çevir</h2>
+      <p class="note">Word, Excel veya PowerPoint dosyanı seçip PDF'ye dönüştür.</p>
       <form action="/convert" method="post" enctype="multipart/form-data">
         <input type="file" name="wordfile" accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx" required>
         <button class="convert-button" type="submit">Dosyayı PDF'ye çevir</button>
       </form>
+      <h3 id="powerpoint">PowerPoint'i PDF'ye Çevir</h3>
+      <h3 id="excel">Excel'i PDF'ye Çevir</h3>
+    </section>
+
+    <section class="text-box" id="metin">
+      <h2>Metni PDF'ye Çevir</h2>
+      <p class="note">
+        Bu bölümün çalışması için Go programına metin-PDF dönüştürme özelliği eklenmelidir.
+      </p>
     </section>
   </main>
 
-  <footer>PDF Kütüphanem · Dosyalarını PDF'ye dönüştür</footer>
+  <footer>PDF Kütüphanem · Ücretsiz PDF oluşturucu</footer>
 
   <script>
     const input = document.getElementById("fileInput");
