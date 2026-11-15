@@ -2,17 +2,17 @@ package main
 
 import (
 	"context"
- "database/sql"
+	"database/sql"
 	"fmt"
 	"html/template"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
- "net/url"
 	"strings"
 	"time"
 
@@ -34,6 +34,7 @@ const resultHTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PDF Hazır - PDF Kütüphanem</title>
+<meta name="robots" content="noindex">
 <style>
 *{box-sizing:border-box}
 body{
@@ -102,13 +103,25 @@ p{color:#777;line-height:1.6}
 func main() {
 	var err error
 
- dsn := os.Getenv("DATABASE_URL")
- if dsn == "" {
-  password := os.Getenv("DB_PASSWORD")
-  if password == "" { log.Fatal("DB_PASSWORD veya DATABASE_URL tanımlayın") }
-  u := &url.URL{Scheme:"postgres", User:url.UserPassword("postgres", password), Host:"localhost:5432", Path:"pdf_sitesi", RawQuery:"sslmode=disable"}
-  dsn = u.String()
- }
+	dsn := os.Getenv("DATABASE_URL")
+
+	if dsn == "" {
+		password := os.Getenv("DB_PASSWORD")
+
+		if password == "" {
+			log.Fatal("DB_PASSWORD veya DATABASE_URL tanımlayın")
+		}
+
+		u := &url.URL{
+			Scheme:   "postgres",
+			User:     url.UserPassword("postgres", password),
+			Host:     "localhost:5432",
+			Path:     "pdf_sitesi",
+			RawQuery: "sslmode=disable",
+		}
+
+		dsn = u.String()
+	}
 
 	db, err = sql.Open("pgx", dsn)
 	if err != nil {
@@ -136,22 +149,51 @@ func main() {
 		log.Fatal("Klasör hatası: ", err)
 	}
 
+	http.HandleFunc("/robots.txt", robotsHandler)
 	http.HandleFunc("/", homeHandler)
 	http.HandleFunc("/convert", convertOfficeToPDF)
 	http.HandleFunc("/convert-jpg", convertImagesToPDF)
 	http.HandleFunc("/pdf/", downloadPDF)
 
 	port := os.Getenv("PORT")
- if port == "" { port = "8080" }
-	listener, err := net.Listen("tcp", ":"+port)
+	if port == "" {
+		port = "8080"
+	}
 
- if err != nil { log.Fatal("Port hatası: ", err) }
+	listener, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		log.Fatal("Port hatası: ", err)
+	}
 
 	fmt.Println("PostgreSQL bağlantısı başarılı")
-	fmt.Println("Site http://localhost:" + port + " adresinde açılıyor")
+	fmt.Println("Sunucu " + port + " portunda çalışıyor")
 
-	server := &http.Server{ReadHeaderTimeout: 10*time.Second, ReadTimeout: 60*time.Second, WriteTimeout: 150*time.Second, IdleTimeout: 60*time.Second}
- log.Fatal(server.Serve(listener))
+	server := &http.Server{
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      150 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	log.Fatal(server.Serve(listener))
+}
+
+// Ana sayfanın taranmasına izin verir.
+// Dönüştürme ve indirme adreslerini tarama dışında tutar.
+func robotsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "Geçersiz istek", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+	if r.Method == http.MethodHead {
+		return
+	}
+
+	fmt.Fprint(w, "User-agent: *\nDisallow: /pdf/\nDisallow: /convert\n")
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +202,8 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "Geçersiz istek", http.StatusMethodNotAllowed)
 		return
 	}
@@ -170,7 +213,9 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 func showResult(w http.ResponseWriter, message, fileName string) {
 	t := template.Must(template.New("result").Parse(resultHTML))
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Robots-Tag", "noindex")
 
 	err := t.Execute(w, ResultData{
 		Message:  message,
@@ -191,11 +236,14 @@ func savePDFRecord(fileName, filePath string) error {
 		fileName,
 		filePath,
 	)
+
 	return err
 }
 
-// Microsoft Office dosyalarını PDF'ye dönüştürür.
+// Word, Excel ve PowerPoint dosyalarını PDF'ye dönüştürür.
 func convertOfficeToPDF(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Robots-Tag", "noindex")
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Geçersiz istek", http.StatusMethodNotAllowed)
 		return
@@ -204,12 +252,20 @@ func convertOfficeToPDF(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 25<<20)
 
 	file, header, err := r.FormFile("wordfile")
+
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+
 	if err != nil {
-		http.Error(w, "Lütfen bir dosya seç.", http.StatusBadRequest)
+		http.Error(
+			w,
+			"Dosya alınamadı. Bir dosya seç ve toplam boyutun 25 MB sınırını aşmadığından emin ol.",
+			http.StatusBadRequest,
+		)
 		return
 	}
 	defer file.Close()
- if r.MultipartForm != nil { defer r.MultipartForm.RemoveAll() }
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 
@@ -229,16 +285,23 @@ func convertOfficeToPDF(w http.ResponseWriter, r *http.Request) {
 
 	tempDir, err := os.MkdirTemp("", "pdf-office-*")
 	if err != nil {
-		http.Error(w, "Geçici klasör oluşturulamadı.", 500)
+		http.Error(w, "Geçici klasör oluşturulamadı.", http.StatusInternalServerError)
 		return
 	}
 	defer os.RemoveAll(tempDir)
 
+	tempDir, err = filepath.Abs(tempDir)
+	if err != nil {
+		http.Error(w, "Dosya yolu oluşturulamadı.", http.StatusInternalServerError)
+		return
+	}
+
 	inputPath := filepath.Join(tempDir, "document"+ext)
+	generatedPDF := filepath.Join(tempDir, "document.pdf")
 
 	outputFile, err := os.Create(inputPath)
 	if err != nil {
-		http.Error(w, "Dosya kaydedilemedi.", 500)
+		http.Error(w, "Dosya kaydedilemedi.", http.StatusInternalServerError)
 		return
 	}
 
@@ -246,47 +309,54 @@ func convertOfficeToPDF(w http.ResponseWriter, r *http.Request) {
 	closeErr := outputFile.Close()
 
 	if copyErr != nil || closeErr != nil {
-		http.Error(w, "Dosya kopyalanamadı.", 500)
+		http.Error(w, "Dosya kopyalanamadı.", http.StatusInternalServerError)
 		return
 	}
 
-	// Dosya yollarını mutlak hale getir.
-	inputPath, err = filepath.Abs(inputPath)
-	if err != nil {
-		http.Error(w, "Dosya yolu oluşturulamadı.", 500)
-		return
-	}
-
-	generatedPDF := filepath.Join(tempDir, "document.pdf")
-	generatedPDF, err = filepath.Abs(generatedPDF)
-	if err != nil {
-		http.Error(w, "PDF yolu oluşturulamadı.", 500)
-		return
-	}
-
- // Her dönüşüm ayrı profil kullanır; aynı anda tek Office işi çalışır.
- select {
- case conversionSlot <- struct{}{}:
-  defer func(){ <-conversionSlot }()
- default:
-  http.Error(w, "Sunucu meşgul. Biraz sonra tekrar deneyin.", http.StatusServiceUnavailable)
-  return
- }
- ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
- defer cancel()
- profile := (&url.URL{Scheme:"file", Path:filepath.ToSlash(filepath.Join(tempDir,"profile"))}).String()
- cmd := exec.CommandContext(ctx, "libreoffice", "-env:UserInstallation="+profile,
-  "--headless", "--nologo", "--nodefault", "--norestore",
-  "--convert-to", "pdf", "--outdir", tempDir, inputPath)
-
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		log.Println("LibreOffice dönüştürme hatası:", string(output), err)
+	// Aynı anda tek Office dönüşümü çalışır.
+	select {
+	case conversionSlot <- struct{}{}:
+		defer func() {
+			<-conversionSlot
+		}()
+	default:
 		http.Error(
 			w,
-			"Belge PDF'ye dönüştürülemedi. Terminaldeki hatayı kontrol edin.",
-			500,
+			"Sunucu meşgul. Biraz sonra tekrar deneyin.",
+			http.StatusServiceUnavailable,
+		)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+
+	profile := (&url.URL{
+		Scheme: "file",
+		Path:   filepath.ToSlash(filepath.Join(tempDir, "profile")),
+	}).String()
+
+	cmd := exec.CommandContext(
+		ctx,
+		"libreoffice",
+		"-env:UserInstallation="+profile,
+		"--headless",
+		"--nologo",
+		"--nodefault",
+		"--norestore",
+		"--convert-to", "pdf",
+		"--outdir", tempDir,
+		inputPath,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Println("LibreOffice dönüştürme hatası:", string(output), err)
+
+		http.Error(
+			w,
+			"Belge PDF'ye dönüştürülemedi. Dosyayı kontrol edip tekrar deneyin.",
+			http.StatusInternalServerError,
 		)
 		return
 	}
@@ -294,7 +364,7 @@ func convertOfficeToPDF(w http.ResponseWriter, r *http.Request) {
 	source, err := os.Open(generatedPDF)
 	if err != nil {
 		log.Println("PDF bulunamadı:", string(output), err)
-		http.Error(w, "Oluşturulan PDF bulunamadı.", 500)
+		http.Error(w, "Oluşturulan PDF bulunamadı.", http.StatusInternalServerError)
 		return
 	}
 	defer source.Close()
@@ -304,7 +374,7 @@ func convertOfficeToPDF(w http.ResponseWriter, r *http.Request) {
 
 	destination, err := os.Create(pdfPath)
 	if err != nil {
-		http.Error(w, "PDF kaydedilemedi.", 500)
+		http.Error(w, "PDF kaydedilemedi.", http.StatusInternalServerError)
 		return
 	}
 
@@ -313,14 +383,14 @@ func convertOfficeToPDF(w http.ResponseWriter, r *http.Request) {
 
 	if copyErr != nil || closeErr != nil {
 		os.Remove(pdfPath)
-		http.Error(w, "PDF kopyalanamadı.", 500)
+		http.Error(w, "PDF kopyalanamadı.", http.StatusInternalServerError)
 		return
 	}
 
 	if err := savePDFRecord(pdfName, pdfPath); err != nil {
 		os.Remove(pdfPath)
 		log.Println("Veritabanı hatası:", err)
-		http.Error(w, "PDF veritabanına kaydedilemedi.", 500)
+		http.Error(w, "PDF veritabanına kaydedilemedi.", http.StatusInternalServerError)
 		return
 	}
 
@@ -329,6 +399,8 @@ func convertOfficeToPDF(w http.ResponseWriter, r *http.Request) {
 
 // JPG, JPEG ve PNG görsellerini PDF'ye dönüştürür.
 func convertImagesToPDF(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Robots-Tag", "noindex")
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Geçersiz istek", http.StatusMethodNotAllowed)
 		return
@@ -336,16 +408,21 @@ func convertImagesToPDF(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, 30<<20)
 
-	if err := r.ParseMultipartForm(30 << 20); err != nil {
-		http.Error(w, "Dosyalar çok büyük veya geçersiz.", 400)
+	err := r.ParseMultipartForm(30 << 20)
+
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+
+	if err != nil {
+		http.Error(w, "Dosyalar çok büyük veya geçersiz.", http.StatusBadRequest)
 		return
 	}
-	defer r.MultipartForm.RemoveAll()
 
 	files := r.MultipartForm.File["images"]
 
 	if len(files) == 0 {
-		http.Error(w, "Lütfen en az bir görsel seç.", 400)
+		http.Error(w, "Lütfen en az bir görsel seç.", http.StatusBadRequest)
 		return
 	}
 
@@ -357,13 +434,17 @@ func convertImagesToPDF(w http.ResponseWriter, r *http.Request) {
 		ext := strings.ToLower(filepath.Ext(header.Filename))
 
 		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
-			http.Error(w, "Yalnızca JPG, JPEG ve PNG destekleniyor.", 400)
+			http.Error(
+				w,
+				"Yalnızca JPG, JPEG ve PNG destekleniyor.",
+				http.StatusBadRequest,
+			)
 			return
 		}
 
 		file, err := header.Open()
 		if err != nil {
-			http.Error(w, "Görsel açılamadı.", 400)
+			http.Error(w, "Görsel açılamadı.", http.StatusBadRequest)
 			return
 		}
 
@@ -383,14 +464,14 @@ func convertImagesToPDF(w http.ResponseWriter, r *http.Request) {
 		file.Close()
 
 		if info == nil || pdf.Error() != nil {
-			http.Error(w, "Görsel PDF'ye eklenemedi.", 400)
+			http.Error(w, "Görsel PDF'ye eklenemedi.", http.StatusBadRequest)
 			return
 		}
 
 		width, height := info.Extent()
 
 		if width <= 0 || height <= 0 {
-			http.Error(w, "Görsel boyutları geçersiz.", 400)
+			http.Error(w, "Görsel boyutları geçersiz.", http.StatusBadRequest)
 			return
 		}
 
@@ -398,7 +479,6 @@ func convertImagesToPDF(w http.ResponseWriter, r *http.Request) {
 		maxHeight := 277.0
 
 		scale := maxWidth / width
-
 		if height*scale > maxHeight {
 			scale = maxHeight / height
 		}
@@ -428,15 +508,16 @@ func convertImagesToPDF(w http.ResponseWriter, r *http.Request) {
 	pdfPath := filepath.Join("uploads", pdfName)
 
 	if err := pdf.OutputFileAndClose(pdfPath); err != nil {
+		os.Remove(pdfPath)
 		log.Println("PDF hatası:", err)
-		http.Error(w, "PDF oluşturulamadı.", 500)
+		http.Error(w, "PDF oluşturulamadı.", http.StatusInternalServerError)
 		return
 	}
 
 	if err := savePDFRecord(pdfName, pdfPath); err != nil {
 		os.Remove(pdfPath)
 		log.Println("Veritabanı hatası:", err)
-		http.Error(w, "PDF veritabanına kaydedilemedi.", 500)
+		http.Error(w, "PDF veritabanına kaydedilemedi.", http.StatusInternalServerError)
 		return
 	}
 
@@ -445,6 +526,8 @@ func convertImagesToPDF(w http.ResponseWriter, r *http.Request) {
 
 // Oluşturulan PDF dosyasını indirir.
 func downloadPDF(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Robots-Tag", "noindex")
+
 	if r.Method != http.MethodGet {
 		http.Error(w, "Geçersiz istek", http.StatusMethodNotAllowed)
 		return
@@ -454,6 +537,7 @@ func downloadPDF(w http.ResponseWriter, r *http.Request) {
 
 	if fileName == "" ||
 		fileName != filepath.Base(fileName) ||
+		strings.ContainsAny(fileName, "/\\") ||
 		!strings.HasSuffix(strings.ToLower(fileName), ".pdf") {
 		http.NotFound(w, r)
 		return
